@@ -7,6 +7,7 @@
 //----------------------------------------------------------------------Librerias de Codigo de Lectora RFID
 #include "comms.h"
 #include "NTPServer.h"
+#include <campana.h>
 //----------------------------------------------------------------------------------To work variables 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -141,7 +142,7 @@ void Screen_msg(String s_msg,int t_size,int spos_x,int spos_y){
 
 //-----------------------------------------------------------------------------------Setting up ESP8266 scketch
 void setup() {
- 
+ //**********************************************************************************Setup OLED!!*********************************************************************
   Wire.begin(5, 4);
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   oled.setTextSize(1);
@@ -152,7 +153,13 @@ void setup() {
   delay(2000);
   // Clear the buffer.
   oled.clearDisplay();
+  //*********************************************************************************Setup Servo************************************************************************
+  pinMode(SERVO_PIN, OUTPUT);  // Set servo pin as an output pin
+  servo.attach(SERVO_PIN);
+  angle = MIN_ANGLE;           // Set the motor position value to the minimum
+  //*********************************************************************************Setup Serial debug port************************************************************
   Serial.begin(115200);
+  //*********************************************************************************Setup Initial Degun Massages ! (its alive!!)***************************************
   Serial.println(F("")); 
   Serial.println(F("Inicializacion de programa de boton con identificacion RFID;"));
   Serial.println(F("Parametros de ambiente de funcionamiento:"));
