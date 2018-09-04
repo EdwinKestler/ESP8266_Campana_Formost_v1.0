@@ -385,6 +385,11 @@ void loop() {
    if(millis() - last_State_Update > 60*UInterval) {
       last_State_Update = millis(); //Actulizar la ultima hora de envio
       fsm_state = STATE_UPDATE;
+      Serial.println("Rings Once");
+      oled.clearDisplay();
+      Screen_msg("Ringing",2,10,10);
+      Rings(1);
+      oled.clearDisplay();
    }
    
    if(millis() - last_NTP_Update > 60*60*UInterval) {

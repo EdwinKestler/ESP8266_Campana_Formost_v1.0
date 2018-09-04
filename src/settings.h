@@ -5,11 +5,11 @@
 //---------Bluemix IBM Settings-------------
 #define ORG "FLATBOX"
 #define DEVICE_TYPE "WEMOSD1MINIV2"
-#define DEVICE_ID "TEST_BLANK"
-#define TOKEN "NONE_TK"
+#define DEVICE_ID "TEST_CAMPANA"
+#define TOKEN "Fbx_admin2012"
 //-------- Customise the above values --------
 
-#define InternetServer   "35.193.188.127"
+#define InternetServer   "35.226.70.147"
 //#define Cayala      "10.130.19.250"
 //#define MiraFlores  "10.130.14.240"
 //#define Fraijanes   "10.130.15.245"
@@ -23,11 +23,11 @@ String FirmwareVersion= "V1.0";                                        //read in
 String HardwareVersion= "V1.0";                                        //read in chage history 
 //---------Blurmix Topics---------------------
 
-const char  publishTopic[] =  "iot-2/evt/status/fmt/json";
-const char  responseTopic[] = "iotdm-1/response/";
-const char  manageTopic[] =   "iotdevice-1/mgmt/manage";
-const char  updateTopic[] =   "iotdm-1/device/update";
-const char  rebootTopic[] =   "iotdm-1/mgmt/initiate/device/reboot";
+const char  publishTopic[] =  "iot-2/evt/status/fmt/bell/json";
+const char  responseTopic[] = "iotdm-1/bell/response/";
+const char  manageTopic[] =   "iotdevice-1/mgmt/bell/manage";
+const char  updateTopic[] =   "iotdm-1/device/bell/update";
+const char  rebootTopic[] =   "iotdm-1/mgmt/initiate/device/bell/reboot";
 
 //-----------Variables de Configuracion del Servicio de NTP
 //-------- Configuracion de parametros de servicio remots de hora (NTP Servers:)
