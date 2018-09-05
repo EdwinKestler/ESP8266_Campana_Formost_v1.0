@@ -7,10 +7,7 @@
 #define DEVICE_TYPE "WEMOSD1MINIV2"
 #define DEVICE_ID "TEST_CAMPANA"
 #define TOKEN "Fbx_admin2012"
-//---------Set Neopixel Values----------------
-#define NEOPIXEL_PIN            15
-#define NUMPIXELS      16
-#define SERVO_PIN      6
+
 //-------- Customise the above values --------
 
 #define internetS   "adnode.flatbox.io"

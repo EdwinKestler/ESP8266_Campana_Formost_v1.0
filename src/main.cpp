@@ -4,24 +4,46 @@
 #include <ESP8266WebServer.h>                                         //Libreira de html para ESP8266
 #include <DNSServer.h>                                                //Libreria de DNS para resolucion de Nombres
 #include <WiFiManager.h>                                              //https://github.com/tzapu/WiFiManager
-//----------------------------------------------------------------------Librerias de Codigo de Lectora RFID
-#include "comms.h"
-#include "NTPServer.h"
-#include <campana.h>
+//----------------------------------------------------------------------librerias de TIEMPO NTP
+#include <TimeLibEsp.h>                                                  //TimeTracking
+#include <WiFiUdp.h>                                                  //UDP packet handling for NTP request
 //----------------------------------------------------------------------------------To work variables 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
+// Librerias de ESP // MQTT/ JSON FORMAT data
+#include <ESP8266WiFi.h>                                              //Libreira de ESPCORE ARDUINO
+#include <PubSubClient.h>                                             //https://github.com/knolleary/pubsubclient/releases/tag/v2.3
+#include "settings.h"
+//-----------------------------------------------------------------------librerias de SErvo y neopixeles
+#include <Servo.h>
+#include <Adafruit_NeoPixel.h>
+//----------------------------------------------------------------------- fin de librerias 
+char clientId[] = "d:" ORG ":" DEVICE_TYPE ":" DEVICE_ID;               //Variable de Identificacion de Cliente para servicio de MQTT Bluemix 
+//----------------------------------------------------------------------Variables Propias del CORE ESP8266 Para la administracion del Modulo
+String NodeID = String(ESP.getChipId());                                //Variable Global que contiene la identidad del nodo (ChipID) o numero unico
+//---------------------------------------------------------------------------------OLED variables
 #define OLED_RESET 0
 Adafruit_SSD1306 oled(OLED_RESET);
-
 #if (SSD1306_LCDHEIGHT != 64)
 //#error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
-
 //---------------------------------------------------------------------------------variables de NEOPIXEL
-volatile int ESTADO=0;
+#define NEOPIXEL_PIN   15
+#define NUMPIXELS      16
+#define SERVO_PIN      13
+
+#define GREEN pixels.Color(0,255,0)
+#define ORANGE pixels.Color(255,98,0)
+#define YELLOW pixels.Color(255,255,0)
+#define RED pixels.Color(255,0,0)
+#define BLUE pixels.Color(0,0,255)
+#define Blanco pixels.Color(255,255,255)
+#define NONE pixels.Color(0,0,0)
+
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+Servo myservo;
 
 //---------------------------------------------------------------------------------Prueba de Strings
 String inputString ="Prueba de envio";
@@ -42,7 +64,12 @@ int failed, sent, published;                                          //Variable
 #define STATE_TRANSMIT_DEVICE_UPDATE  5
 #define STATE_UPDATE_TIME             6
 int fsm_state;
-
+//----------------------------------------------------------------------Inicio de cliente UDP
+WiFiUDP udp;                                                            //Cliente UDP para WIFI
+//----------------------------------------------------------------------Codigo para estblecer el protocolo de tiempo en red NTP
+const int NTP_PACKET_SIZE = 48;                                         //NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE];                                     //Buffer to hold incoming & outgoing packets
+boolean NTP = false;                                                    //Bandera que establece el estado inicial del valor de NTP
 //----------------------------------------------------------------------Variables del servicio de envio de datos MQTT
 const char* cserver = "";
 //char authMethod[] = "use-token-auth";                                 //Tipo de Autenticacion para el servicio de Bluemix (la calve es unica por cada nodo)
@@ -60,9 +87,229 @@ unsigned long last_Normal_Reset;                                        //Variab
 String ISO8601;                                                         //Variable para almacenar la marca del timepo (timestamp) de acuerdo al formtao ISO8601
 int hora = 0;
 
+void Reset_Ring(){
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, NONE);
+    pixels.show();
+  }
+  delay(55);
+}
+
+void Start_Ring() {
+
+  for (int pos = 65; pos <= 115; pos += 1) {
+    myservo.write(pos);
+    delay(3);
+  }
+
+  for (int pos = 115; pos >= 65; pos -= 1) {
+    myservo.write(pos);
+    delay(3);
+  }
+}
+
+void SET_GREEN() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, GREEN);
+    pixels.show();   
+    delay(55);
+  }
+     delay(111);
+  Reset_Ring();
+
+  
+}
+
+void SET_RED() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, RED);
+    pixels.show();
+    delay(55);
+  }
+  Start_Ring();
+  Reset_Ring();
+}
+
+void SET_ORANGE() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, ORANGE);
+    pixels.show();
+    delay(55);
+  }
+   Start_Ring();
+ Reset_Ring();
+}
+
+void SET_YELLOW() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, YELLOW);
+    pixels.show();
+    delay(55);
+  }
+   delay(111);
+  Reset_Ring();
+}
+
+void SET_DEFAULT() {
+  for (int i = 0; i < 3; i++) {
+    pixels.setPixelColor(i, Blanco);
+    pixels.show();
+    delay(55);
+  }
+  for (int i = 3; i < 7; i++) {
+    pixels.setPixelColor(i, BLUE);
+    pixels.show();
+    delay(55);
+  }
+  for (int i = 7; i <11; i++) {
+    pixels.setPixelColor(i, Blanco);
+    pixels.show(); 
+    delay(55);
+  }
+  for (int i = 11; i <15; i++) {
+    pixels.setPixelColor(i, BLUE);
+    pixels.show(); 
+    delay(55);
+  }
+
+  pixels.setPixelColor(15, Blanco);
+    pixels.show(); 
+    delay(55);
+  
+}
+
+//----------------------------------------------------------------------Funcion remota para administrar las actulizaciones remotas de las variables configurables desde IBMbluemix
+void handleUpdate(byte* payload)
+{
+    //La Funcion recibe lo que obtenga Payload de la Funcion Callback que vigila el Topico de subcripcion (Subscribe TOPIC)
+    StaticJsonBuffer<300> jsonBuffer;                                   //Se establece un Buffer de 1o suficientemente gande para almacenar los menasajes JSON
+    JsonObject& root = jsonBuffer.parseObject((char*)payload);          //Se busca la raiz del mensaje Json convirtiendo los Bytes del Payload a Caracteres en el buffer
+    if (!root.success())
+    {
+        //Si no se encuentra el objeto Raiz del Json
+        Serial.println(F("ERROR en la Letura del JSON Entrante"));      //Se imprime un mensaje de Error en la lectura del JSON
+        return;                                                         //Nos salimos de la funcion
+    }                                                                   //se cierra el condicional
+    //Seimprime el mensaje que se recibio
+    Serial.println(F("handleUpdate payload:"));                         //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
+    root.prettyPrintTo(Serial);                                         //y se imprime el mensaje recibido al Serial  
+    Serial.println();                                                   //dejamos una linea de pormedio para continuar con los mensajes de debugging
+    //Buscamos los datos enviados al sensor
+    const char* Chip_ID = root["CHIPID"];                             // buscamos el valor del objeto dentro del Json
+    unsigned int new_alarm_state = root["ALARM_STATE"];              // buscamos en en un arreglo de objetos en la posicion 0
+    Serial.println("los datos recibidos son:");
+    Serial.print(F("Tipo de sensor: "));
+    Serial.println(Chip_ID);                                             //imprimimos las valores recibidos en variables
+    String C_ID = String(Chip_ID);
+    if (C_ID == NodeID ){
+      Serial.print(F("nuevo estado de alarma:"));                               //imprimimos las valores recibidos en variables
+      Serial.println(new_alarm_state);                                  //imprimimos las valores recibidos en variables
+    }
+}
+
+   
+//----------------------------------------------------------------------Funcion remota para mandar a dormir el esp despues de enviar un RFID
+void handleResponse (byte* payloadrsp) {
+  StaticJsonBuffer<200> jsonBuffer;                                   //Se establece un Buffer de 1o suficientemente gande para almacenar los menasajes JSON
+  JsonObject& root = jsonBuffer.parseObject((char*)payloadrsp);       //Se busca la raiz del mensaje Json convirtiendo los Bytes del Payload a Caracteres en el buffer
+  if (!root.success()) {                                              //Si no se encuentra el objeto Raiz del Json
+    Serial.println(F("ERROR en la Letura del JSON Entrante"));        //Se imprime un mensaje de Error en la lectura del JSON
+    return;                                                           //Nos salimos de la funcion
+  }                                                                   //se cierra el condicional
+  
+  Serial.println(F("handleResponse payload:"));                       //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
+  root.printTo(Serial);                                               //y se imprime el mensaje recibido al Serial  
+  Serial.println(F(""));                                                   //dejamos una linea de pormedio para continuar con los mensajes de debugging
+}
+
+//----------------------------------------------------------------------Funcion de vigilancia sobre mensajeria remota desde el servicion de IBM bluemix
+void callback(char* topic, byte* payload, unsigned int payloadLength){//Esta Funcion vigila los mensajes que se reciben por medio de los Topicos de respuesta;
+  Serial.print(F("callback invoked for topic: "));                    //Imprimir un mensaje seÃ±alando sobre que topico se recibio un mensaje
+  Serial.println(topic);                                              //Imprimir el Topico
+  delay(1000);
+  
+  if (strcmp (responseTopic, topic) == 0) {                            //verificar si el topico conicide con el Topico responseTopic[] definido en el archivo settings.h local
+    handleResponse(payload);
+    //return; // just print of response for now                         //Hacer algo si conicide (o en este caso hacer nada)
+  }
+  
+  if (strcmp (rebootTopic, topic) == 0) {                             //verificar si el topico conicide con el Topico rebootTopic[] definido en el archivo settings.h local
+    Serial.println(F("Rebooting..."));                                //imprimir mensaje de Aviso sobre reinicio remoto de unidad.
+    ESP.reset();                                                    //Emitir comando de reinicio para ESP8266
+  }
+  
+  if (strcmp (updateTopic, topic) == 0) {                             //verificar si el topico conicide con el Topico updateTopic[] definido en el archivo settings.h local
+    handleUpdate(payload);                                            //enviar a la funcion handleUpdate el contenido del mensaje para su parseo.
+  } 
+}
+
+//----------------------------------------------------------------------definicion de Cliente WIFI para ESP8266 y cliente de publicacion y subcripcion
+WiFiClient wifiClient;                                                //Se establece el Cliente Wifi
+PubSubClient client(MQTTServer, 1883, callback, wifiClient);              //se establece el Cliente para el servicio MQTT
+
+//----------------------------------------------------------------------Funcion de Conexion a Servicio de MQTT
+void mqttConnect() {
+  if (!!!client.connected()) {                                         //Verificar si el cliente se encunetra conectado al servicio
+  Serial.print(F("Reconnecting MQTT client to: "));                    //Si no se encuentra conectado imprimir un mensake de error y de reconexion al servicio
+  Serial.println(MQTTServer);                                             //Imprimir la direccion del servidor a donde se esta intentado conectar 
+  char charBuf[30];
+  String CID (clientId + NodeID); 
+  CID.toCharArray(charBuf, 30);  
+  #if defined (internetS)
+    while (!!!client.connect(charBuf, "flatboxadmin", "FBx_admin2012")) {                                //Si no se encuentra conectado al servicio intentar la conexion con las credenciales Clientid, Metodo de autenticacion y el Tokeno password
+    Serial.print(F("."));                                             //imprimir una serie de puntos mientras se da la conexion al servicio
+    }  
+  #else
+    while (!!!client.connect(charBuf)) {                                //Si no se encuentra conectado al servicio intentar la conexion con las credenciales Clientid, Metodo de autenticacion y el Tokeno password
+    Serial.print(F("."));                                             //imprimir una serie de puntos mientras se da la conexion al servicio
+    }  
+  #endif  
+  Serial.println();                                                   //dejar un espacio en la terminal para diferenciar los mensajes.
+ }
+}
+
+//----------------------------------------------------------------------Funcion de REConexion a Servicio de MQTT
+void MQTTreconnect() 
+{
+  int retry = 0;
+  // Loop until we're reconnected
+  while (!client.connected()) 
+  {    
+    Serial.print(F("Attempting MQTT connection..."));
+    char charBuf[30];
+    String CID (clientId + NodeID);
+    CID.toCharArray(charBuf, 30);  
+    
+     #if defined (internetS)
+     if (client.connect(charBuf, "flatboxadmin", "FBx_admin2012")) 
+     {
+      Serial.println(F("connected"));
+     }
+     #else
+     if (client.connect(charBuf)) 
+     {
+      Serial.println(F("connected"));
+     }
+     #endif
+     else {
+      Serial.print(F("failed, rc="));
+      Serial.print(client.state());
+      Serial.print(F(" try again in 3 seconds,"));
+      Serial.print(F(" retry #:"));
+      Serial.println(retry);
+      if (retry > 10){
+        ESP.restart();
+        retry=0;
+      }
+      retry++;
+      // Wait 3 seconds before retrying
+      delay(3000);
+    }
+  }
+}
 //----------------------------------------------------------------------Funcion encargada de subscribir el nodo a los servicio de administracion remota y de notificar los para metros configurables al mismo
 void initManagedDevice() {
-  if (client.subscribe("iotdm-1/response")) {                         //Subscribir el nodo al servicio de mensajeria de respuesta
+  if (client.subscribe(responseTopic)) {                         //Subscribir el nodo al servicio de mensajeria de respuesta
     Serial.println(F("subscribe to responses OK"));                   //si se logro la sibscripcion entonces imprimir un mensaje de exito
   }
   else {
@@ -76,7 +323,7 @@ void initManagedDevice() {
     Serial.println(F("subscribe to reboot FAILED"));                  //Si no se logra la subcripcion imprimir un mensaje de error                
   }
   
-  if (client.subscribe("iotdm-1/device/update")) {                    //Subscribir el nodo al servicio de mensajeria de reinicio remoto
+  if (client.subscribe(updateTopic)) {                    //Subscribir el nodo al servicio de mensajeria de reinicio remoto
     Serial.println(F("subscribe to update OK"));                      //si se logro la sibscripcion entonces imprimir un mensaje de exito
   }
   else {
@@ -105,11 +352,59 @@ void initManagedDevice() {
   sent++;
   if (client.publish(manageTopic, buff)) {
     Serial.println(F("device Publish ok"));
+    SET_GREEN();
   }else {
     Serial.println(F("device Publish failed:"));
   }
 }
 
+//----------------------------------------------------------------------send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // 
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12]  = 49;
+  packetBuffer[13]  = 0x4E;
+  packetBuffer[14]  = 49;
+  packetBuffer[15]  = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:                 
+  udp.beginPacket(address, 123); //NTP requests are to port 123
+  udp.write(packetBuffer, NTP_PACKET_SIZE);
+  udp.endPacket();
+}
+
+//----------------------------------------------------------------------Funcion para obtener el paquee de TP y procesasr la fecha hora desde el servidor de NTP
+time_t getNtpTime(){
+  while (udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println(F("Transmit NTP Request"));
+  sendNTPpacket(timeServer);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println(F("Receive NTP Response"));
+      NTP = true;
+      udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+    }
+  }
+  Serial.println(F("No NTP Response :-("));
+  return 0; // return 0 if unable to get the time
+}
 //----------------------------------------------------------------------anager function. Configure the wifi connection if not connect put in mode AP--------//
 void wifimanager() {
   WiFiManager wifiManager;
@@ -159,7 +454,10 @@ void setup() {
   //*********************************************************************************Setup Serial debug port************************************************************
   Serial.begin(115200);
   //*********************************************************************************Se inicializa el neopixel**********************************************************
-  SET_ALARM();
+  pixels.begin();
+  myservo.attach(SERVO_PIN);
+  myservo.write(91);
+  delay(111);
   //*********************************************************************************Setup Initial Degun Massages ! (its alive!!)***************************************
   Serial.println(F("")); 
   Serial.println(F("Inicializacion de programa de boton con identificacion RFID;"));
@@ -181,6 +479,8 @@ void setup() {
   Serial.print(F("            Client ID: "));
   Serial.println(clientId);
   delay(UInterval); 
+  //--------------------------------------------------------------------------Display Neopixel flag... 
+  SET_DEFAULT();
   //--------------------------------------------------------------------------Configuracion Automatica de Wifi   
   while (WiFi.status() != WL_CONNECTED) {                                   //conectamos al wifi si no hay la rutina iniciara una pagina web de configuracion en la direccion 192.168.4.1 
     wifimanager();
@@ -243,6 +543,7 @@ void publishRF_ID_Manejo (String IDModulo,String MSG,int RSSIV, int env, int fai
      Serial.println(F("enviado data de dispositivo:OK"));
      published ++;
      failed = 0; 
+     SET_RED();
   }else {
     Serial.print(F("enviado data de dispositivo:FAILED"));
     failed ++;
