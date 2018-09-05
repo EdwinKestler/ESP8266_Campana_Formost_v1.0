@@ -9,7 +9,7 @@
 #define TOKEN "Fbx_admin2012"
 //-------- Customise the above values --------
 
-#define InternetServer   "35.226.70.147"
+#define internetS   "adnode.flatbox.io"
 //#define Cayala      "10.130.19.250"
 //#define MiraFlores  "10.130.14.240"
 //#define Fraijanes   "10.130.15.245"
@@ -18,7 +18,7 @@
 
 //-------- Customise these values-----------
 
-char MQTTServer [] = InternetServer;
+char MQTTServer [] = internetS;
 String FirmwareVersion= "V1.0";                                        //read in chage history
 String HardwareVersion= "V1.0";                                        //read in chage history 
 //---------Blurmix Topics---------------------
@@ -31,7 +31,7 @@ const char  rebootTopic[] =   "iotdm-1/mgmt/initiate/device/bell/reboot";
 
 //-----------Variables de Configuracion del Servicio de NTP
 //-------- Configuracion de parametros de servicio remots de hora (NTP Servers:)
-#if defined (InternetServer)
+#if defined (internetS)
        IPAddress  timeServer(129,  6, 15, 29); // time.nist.gov NTP ;
        const char* ntpServerName = "129.6.15.29"; //const char*;
        unsigned int localPort = 2390;  // local port to listen for UDP packets
