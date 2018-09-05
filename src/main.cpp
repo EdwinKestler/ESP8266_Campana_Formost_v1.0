@@ -20,6 +20,9 @@ Adafruit_SSD1306 oled(OLED_RESET);
 //#error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
+//---------------------------------------------------------------------------------variables de NEOPIXEL
+volatile int ESTADO=0;
+
 //---------------------------------------------------------------------------------Prueba de Strings
 String inputString ="Prueba de envio";
 String IDEventoB = "eventoTest";
@@ -153,12 +156,10 @@ void setup() {
   delay(2000);
   // Clear the buffer.
   oled.clearDisplay();
-  //*********************************************************************************Setup Servo************************************************************************
-  pinMode(SERVO_PIN, OUTPUT);  // Set servo pin as an output pin
-  servo.attach(SERVO_PIN);
-  angle = MIN_ANGLE;           // Set the motor position value to the minimum
   //*********************************************************************************Setup Serial debug port************************************************************
   Serial.begin(115200);
+  //*********************************************************************************Se inicializa el neopixel**********************************************************
+  SET_ALARM();
   //*********************************************************************************Setup Initial Degun Massages ! (its alive!!)***************************************
   Serial.println(F("")); 
   Serial.println(F("Inicializacion de programa de boton con identificacion RFID;"));
@@ -385,10 +386,6 @@ void loop() {
    if(millis() - last_State_Update > 60*UInterval) {
       last_State_Update = millis(); //Actulizar la ultima hora de envio
       fsm_state = STATE_UPDATE;
-      Serial.println("Rings Once");
-      oled.clearDisplay();
-      Screen_msg("Ringing",2,10,10);
-      Rings(1);
       oled.clearDisplay();
    }
    
